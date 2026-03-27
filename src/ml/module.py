@@ -34,7 +34,8 @@ class FlowersModule(pl.LightningModule):
         config: FlowersModelConfig shared between encoder and decoder
         encoder: FlowersModelEncoder (discriminator)
         decoder: FlowersModelDecoder (generator)
-        learning_rate: learning rate for both Adam optimizers
+        learning_rate_d: learning rate for the discriminator (encoder) optimizer
+        learning_rate_g: learning rate for the generator (decoder) optimizer
         beta1: Adam beta1 parameter (low value per DCGAN convention)
         beta2: Adam beta2 parameter
     """
@@ -53,14 +54,15 @@ class FlowersModule(pl.LightningModule):
         config: FlowersModelConfig,
         encoder: FlowersModelEncoder,
         decoder: FlowersModelDecoder,
-        learning_rate: float = 2e-4,
+        learning_rate_d: float = 1e-4,
+        learning_rate_g: float = 2e-4,
         beta1: float = 0.5,
         beta2: float = 0.999,
     ) -> None:
         super().__init__()
 
         self.save_hyperparameters(
-            ignore=['encoder', 'decoder'],
+            ignore=['config', 'encoder', 'decoder'],
         )
 
         # GAN uses manual optimization for separate generator/discriminator steps
@@ -68,8 +70,9 @@ class FlowersModule(pl.LightningModule):
 
         self.config: t.Final[FlowersModelConfig] = config
 
-        # optimizer hyperparameters
-        self.learning_rate: t.Final[float] = learning_rate
+        # optimizer hyperparameters (asymmetric LR: lower D rate prevents D from overpowering G)
+        self.learning_rate_d: t.Final[float] = learning_rate_d
+        self.learning_rate_g: t.Final[float] = learning_rate_g
         self.beta1: t.Final[float] = beta1
         self.beta2: t.Final[float] = beta2
 
@@ -263,13 +266,13 @@ class FlowersModule(pl.LightningModule):
         """
         optimizer_d: torch.optim.Adam = torch.optim.Adam(
             self.encoder.parameters(),
-            lr=self.learning_rate,
+            lr=self.learning_rate_d,
             betas=(self.beta1, self.beta2),
         )
 
         optimizer_g: torch.optim.Adam = torch.optim.Adam(
             self.decoder.parameters(),
-            lr=self.learning_rate,
+            lr=self.learning_rate_g,
             betas=(self.beta1, self.beta2),
         )
 

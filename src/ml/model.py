@@ -14,8 +14,8 @@ class FlowersModelConfig:
 
     The encoder and decoder share image dimensions, channel count, and base filter count
     so that their architectures are symmetric. The encoder downsamples from image_size to 1x1
-    through NUM_BLOCKS strided convolutions. The decoder upsamples from 1x1 to image_size
-    through NUM_BLOCKS transposed convolutions.
+    through num_blocks strided convolutions. The decoder upsamples from initial_spatial_size
+    to image_size through num_blocks bicubic Upsample + Conv2d blocks.
 
     With image_size=64 and NUM_BLOCKS=4, spatial progression is:
         decoder: 1 -> 4 -> 8 -> 16 -> 32 -> 64
@@ -212,20 +212,27 @@ class FlowersModelEncoder(torch.nn.Module):
 class FlowersModelDecoder(torch.nn.Module):
     """GAN generator (decoder) that maps a latent noise vector to an image.
 
+    Uses bicubic upsampling followed by regular Conv2d instead of ConvTranspose2d
+    to avoid checkerboard artifacts that transposed convolutions produce.
+
     Architecture:
         Linear projection -> Reshape to (deepest_channels, initial_spatial, initial_spatial)
-        -> (num_blocks - 1) x [ConvTranspose2d -> BatchNorm -> ReLU]
-        -> final ConvTranspose2d -> Tanh
+        -> (num_blocks - 1) x [Upsample(bicubic, 2x) -> Conv2d(3x3) -> BatchNorm -> ReLU]
+        -> final Upsample(bicubic, 2x) -> Conv2d(3x3) -> Tanh
 
-    With image_size=64, base_filters=64, latent_dim=128, num_blocks=4, the channel progression is:
-        latent_dim -> 512 -> 256 -> 128 -> 64 -> 3
-
-    Spatial progression (stride=2):
-        1 -> 4 -> 8 -> 16 -> 32 -> 64
+    With image_size=224, base_filters=64, latent_dim=128, num_blocks=5:
+        channels: latent_dim -> 1024 -> 512 -> 256 -> 128 -> 64 -> 3
+        spatial:  7 -> 14 -> 28 -> 56 -> 112 -> 224
 
     Parameters:
         config: FlowersModelConfig with shared architecture hyperparameters
     """
+
+    # bicubic upsampling scale factor (doubles spatial dimensions at each block)
+    UPSAMPLE_SCALE_FACTOR: t.Final[int] = 2
+
+    # kernel size for the smooth convolution after upsampling
+    SMOOTH_CONV_KERNEL: t.Final[int] = 3
 
     def __init__(self, config: FlowersModelConfig) -> None:
         super().__init__()
@@ -255,32 +262,42 @@ class FlowersModelDecoder(torch.nn.Module):
         # build network
         self.net: t.Final[torch.nn.Sequential] = torch.nn.Sequential()
 
-        # intermediate upsampling blocks: each halves channels, doubles spatial dims
-        for i in range(1, len(channels)):
+        # smooth blocks: bicubic upsample + Conv2d to avoid checkerboard artifacts
+        for i in range(0, config.num_blocks - 1):
             self.net.append(
                 torch.nn.Sequential(
-                    torch.nn.ConvTranspose2d(
-                        in_channels=channels[i - 1],
-                        out_channels=channels[i],
-                        kernel_size=config.kernel_size,
-                        stride=config.stride,
-                        padding=config.padding,
+                    torch.nn.Upsample(
+                        scale_factor=self.UPSAMPLE_SCALE_FACTOR,
+                        mode='bicubic',
+                        align_corners=False,
+                    ),
+                    torch.nn.Conv2d(
+                        in_channels=channels[i],
+                        out_channels=channels[i + 1],
+                        kernel_size=self.SMOOTH_CONV_KERNEL,
+                        stride=1,
+                        padding=1,
                         bias=False,
                     ),
-                    torch.nn.BatchNorm2d(channels[i]),
+                    torch.nn.BatchNorm2d(channels[i + 1]),
                     torch.nn.ReLU(inplace=True),
                 )
             )
 
-        # final layer: upsample to image_channels with Tanh activation for [-1, 1] output
+        # final layer: always smooth — upsample to image_channels with Tanh for [-1, 1] output
         self.net.append(
             torch.nn.Sequential(
-                torch.nn.ConvTranspose2d(
+                torch.nn.Upsample(
+                    scale_factor=self.UPSAMPLE_SCALE_FACTOR,
+                    mode='bicubic',
+                    align_corners=False,
+                ),
+                torch.nn.Conv2d(
                     in_channels=channels[-1],
                     out_channels=config.image_channels,
-                    kernel_size=config.kernel_size,
-                    stride=config.stride,
-                    padding=config.padding,
+                    kernel_size=self.SMOOTH_CONV_KERNEL,
+                    stride=1,
+                    padding=1,
                     bias=False,
                 ),
                 torch.nn.Tanh()
@@ -315,7 +332,7 @@ class FlowersModelDecoder(torch.nn.Module):
             batch_size, self.deepest_channels, self.initial_spatial, self.initial_spatial,
         ])
 
-        # upsample through transposed convolutions
+        # upsample through bicubic interpolation + Conv2d blocks
         images: torch.Tensor = self.net(reshaped)
         assert images.shape == torch.Size([
             batch_size, self.config.image_channels, self.config.image_size, self.config.image_size,
