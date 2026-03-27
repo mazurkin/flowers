@@ -1,0 +1,24 @@
+version: 1
+disable_existing_loggers: False
+formatters:
+  simple:
+    format: '%(asctime)-9s %(process)d [%(levelname)s] %(message)s'
+handlers:
+  default:
+    formatter: simple
+    class: logging.StreamHandler
+    stream: ext://sys.stdout
+loggers:
+  lightning:
+    level: INFO
+  lightning_sdk:
+    level: WARNING
+  lightning_fabric:
+    level: WARNING
+  lightning_utilities:
+    level: WARNING
+  httpx:
+    level: WARNING
+root:
+  level: INFO
+  handlers: [default]

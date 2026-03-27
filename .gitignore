@@ -1,0 +1,11 @@
+/.idea
+/*.iml
+/*.ipr
+/*.iws
+
+.ipynb_checkpoints
+__pycache__
+
+*.pth
+*.log
+*.dump

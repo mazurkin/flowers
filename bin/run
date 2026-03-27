@@ -1,0 +1,19 @@
+#!/bin/bash
+
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o monitor
+set -o noglob
+
+# calculate the script's directory
+SCRIPT_DIR=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
+declare -r -x SCRIPT_DIR
+
+# calculate the package directory
+PACKAGE_DIR=$(dirname -- "${SCRIPT_DIR}")
+declare -r -x PACKAGE_DIR
+
+# run the command within the isolated conda environment
+exec conda run --no-capture-output --live-stream --name flowers --cwd "${PACKAGE_DIR}" \
+    "${SCRIPT_DIR}/run-isolated" "$@"

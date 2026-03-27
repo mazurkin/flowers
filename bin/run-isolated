@@ -1,0 +1,49 @@
+#!/bin/bash
+
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o monitor
+set -o noglob
+
+# timezone
+export TZ="America/New_York"
+
+# locale
+export LC_ALL="en_US.UTF-8"
+
+# set hugging face home folder (on some remote servers this variable is already set)
+export HF_HOME="${HOME}/.hf"
+
+# Set TORCHDYNAMO_VERBOSE=1 for the internal stack trace
+# (please do this especially if you're reporting a bug to PyTorch).
+# export TORCHDYNAMO_VERBOSE=0
+
+# The flag is a compiler option used for debugging PyTorch code that runs on an Nvidia GPU.
+# When enabled, it allows for device-side assertions, providing more informative error messages
+# when a CUDA kernel encounters an issue, such as an out-of-bounds memory access
+# export TORCH_USE_CUDA_DSA=0
+
+# disable compilation messages
+# export TORCH_LOGS=-all
+
+# controls GPU memory fragmentation
+# export PYTORCH_ALLOC_CONF=max_split_size_mb:32,garbage_collection_threshold:0.8
+
+# if set to 1, this disables the caching of memory allocations in CUDA,
+# which can be useful for debugging memory issues
+# export PYTORCH_NO_CUDA_MEMORY_CACHING=0
+
+# set to 1 to allow more detailed and structured error messages from CUDA/Torch
+# export CUDA_LAUNCH_BLOCKING=0
+
+# increase the system limit to the number of opened files
+ulimit -n 65536
+
+# python environment
+export PYTHONPATH="${PACKAGE_DIR}/src"
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONUNBUFFERED=1
+
+# run the command
+exec "$@"
