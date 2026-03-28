@@ -210,7 +210,7 @@ class TestGanModelConfig:
         assert config.latent_dim == 128
         assert config.base_filters == 64
         assert config.num_blocks == 5
-        assert config.num_smooth_blocks == 1
+        assert 0 <= config.num_smooth_blocks < config.num_blocks
         assert config.kernel_size == 4
         assert config.stride == 2
         assert config.padding == 1

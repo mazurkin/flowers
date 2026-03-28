@@ -57,7 +57,7 @@ class GanModelConfig:
     # instead of ConvTranspose2d; the remaining early blocks use ConvTranspose2d
     # for sharp structural features from low-resolution feature maps
     num_smooth_blocks: int = dataclasses.field(
-        default=1,
+        default=3,
         metadata={'help': 'Number of final decoder blocks using smooth bicubic upsample + Conv2d'},
     )
 
