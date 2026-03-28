@@ -207,7 +207,7 @@ class TestGanModelConfig:
         config: GanModelConfig = GanModelConfig()
         assert config.image_size == 256
         assert config.image_channels == 3
-        assert config.latent_dim == 128
+        assert config.latent_dim == 64
         assert config.base_filters == 64
         assert config.num_blocks == 5
         assert 0 <= config.num_smooth_blocks < config.num_blocks

@@ -37,7 +37,7 @@ class GanModelConfig:
 
     # dimensionality of the latent noise vector z
     latent_dim: int = dataclasses.field(
-        default=128,
+        default=64,
         metadata={'help': 'Dimensionality of the latent noise vector z'},
     )
 
