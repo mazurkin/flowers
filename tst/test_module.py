@@ -10,9 +10,9 @@ import PIL.Image
 
 import datasets
 
-from ml.data import FlowersDataModuleConfig, FlowersDataset, FlowersDataModule
-from ml.model import FlowersModelConfig, FlowersModelEncoder, FlowersModelDecoder
-from ml.module import FlowersModule
+from ml.data import GanDataModuleConfig, GanDataset, GanDataModule
+from ml.model import GanModelConfig, GanModelEncoder, GanModelDecoder
+from ml.module import GanModule
 
 # default image size used in tests (must be divisible by 2^num_blocks)
 TEST_IMAGE_SIZE: t.Final[int] = 64
@@ -24,9 +24,9 @@ NUM_CHANNELS: t.Final[int] = 3
 NUM_SAMPLES: t.Final[int] = 100
 
 
-def make_test_config() -> FlowersDataModuleConfig:
-    """Creates a small FlowersDataModuleConfig for testing."""
-    return FlowersDataModuleConfig(
+def make_test_config() -> GanDataModuleConfig:
+    """Creates a small GanDataModuleConfig for testing."""
+    return GanDataModuleConfig(
         image_height=TEST_IMAGE_SIZE,
         image_width=TEST_IMAGE_SIZE,
         batch_size=4,
@@ -60,11 +60,11 @@ def make_fake_hf_dataset(num_samples: int = NUM_SAMPLES) -> datasets.Dataset:
     })
 
 
-class TestFlowersDataConfig:
+class TestGanDataConfig:
 
     def test_default_config(self) -> None:
         """Verifies default config values."""
-        config: FlowersDataModuleConfig = FlowersDataModuleConfig()
+        config: GanDataModuleConfig = GanDataModuleConfig()
         assert config.image_height == 224
         assert config.image_width == 224
         assert config.batch_size == 64
@@ -74,22 +74,22 @@ class TestFlowersDataConfig:
 
     def test_frozen(self) -> None:
         """Verifies the config dataclass is immutable."""
-        config: FlowersDataModuleConfig = FlowersDataModuleConfig()
+        config: GanDataModuleConfig = GanDataModuleConfig()
         with pytest.raises(AttributeError):
             config.batch_size = 64
 
 
-class TestFlowersDataset:
+class TestGanDataset:
 
     def test_getitem_returns_correct_shape(self) -> None:
         """Verifies that a single sample has correct tensor shapes."""
-        config: FlowersDataModuleConfig = make_test_config()
+        config: GanDataModuleConfig = make_test_config()
         hf_dataset: datasets.Dataset = make_fake_hf_dataset(num_samples=10)
 
-        dm: FlowersDataModule = FlowersDataModule(config)
+        dm: GanDataModule = GanDataModule(config)
         transform: albumentations.Compose = dm.build_eval_transform()
 
-        ds: FlowersDataset = FlowersDataset(hf_dataset, transform)
+        ds: GanDataset = GanDataset(hf_dataset, transform)
 
         assert len(ds) == 10
 
@@ -105,7 +105,7 @@ class TestFlowersDataset:
 
     def test_grayscale_image_converted_to_rgb(self) -> None:
         """Verifies that a grayscale image is properly converted to 3-channel RGB."""
-        config: FlowersDataModuleConfig = make_test_config()
+        config: GanDataModuleConfig = make_test_config()
 
         # create a single-channel grayscale image
         gray_pixels: numpy.ndarray = numpy.random.randint(0, 256, (32, 32), dtype=numpy.uint8)
@@ -115,28 +115,28 @@ class TestFlowersDataset:
             'label': [0],
         })
 
-        dm: FlowersDataModule = FlowersDataModule(config)
+        dm: GanDataModule = GanDataModule(config)
         transform: albumentations.Compose = dm.build_eval_transform()
-        ds: FlowersDataset = FlowersDataset(hf_dataset, transform)
+        ds: GanDataset = GanDataset(hf_dataset, transform)
 
         sample: dict[str, torch.Tensor] = ds[0]
         assert sample['pixel_values'].shape == torch.Size([NUM_CHANNELS, TEST_IMAGE_SIZE, TEST_IMAGE_SIZE])
 
     def test_train_transform_produces_correct_shape(self) -> None:
         """Verifies the training augmentation pipeline produces correct output shape."""
-        config: FlowersDataModuleConfig = make_test_config()
+        config: GanDataModuleConfig = make_test_config()
         hf_dataset: datasets.Dataset = make_fake_hf_dataset(num_samples=5)
 
-        dm: FlowersDataModule = FlowersDataModule(config)
+        dm: GanDataModule = GanDataModule(config)
         transform: albumentations.Compose = dm.build_train_transform()
-        ds: FlowersDataset = FlowersDataset(hf_dataset, transform)
+        ds: GanDataset = GanDataset(hf_dataset, transform)
 
         for i in range(len(ds)):
             sample: dict[str, torch.Tensor] = ds[i]
             assert sample['pixel_values'].shape == torch.Size([NUM_CHANNELS, TEST_IMAGE_SIZE, TEST_IMAGE_SIZE])
 
 
-class TestFlowersDataModule:
+class TestGanDataModule:
 
     def test_setup_creates_datasets(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verifies that setup() creates train and eval datasets with correct splits."""
@@ -149,8 +149,8 @@ class TestFlowersDataModule:
             lambda *args, **kwargs: fake_dataset,
         )
 
-        config: FlowersDataModuleConfig = make_test_config()
-        dm: FlowersDataModule = FlowersDataModule(config)
+        config: GanDataModuleConfig = make_test_config()
+        dm: GanDataModule = GanDataModule(config)
         dm.setup(stage=None)
 
         assert dm.train_dataset is not None
@@ -176,7 +176,7 @@ class TestFlowersDataModule:
 
         # keep only top 3 classes out of 10
         top_n: int = 3
-        config: FlowersDataModuleConfig = FlowersDataModuleConfig(
+        config: GanDataModuleConfig = GanDataModuleConfig(
             image_height=TEST_IMAGE_SIZE,
             image_width=TEST_IMAGE_SIZE,
             batch_size=4,
@@ -184,7 +184,7 @@ class TestFlowersDataModule:
             top_classes=top_n,
         )
 
-        dm: FlowersDataModule = FlowersDataModule(config)
+        dm: GanDataModule = GanDataModule(config)
         dm.setup(stage=None)
 
         # fake dataset has 100 samples across 10 classes (10 each),
@@ -202,8 +202,8 @@ class TestFlowersDataModule:
             lambda *args, **kwargs: fake_dataset,
         )
 
-        config: FlowersDataModuleConfig = make_test_config()
-        dm: FlowersDataModule = FlowersDataModule(config)
+        config: GanDataModuleConfig = make_test_config()
+        dm: GanDataModule = GanDataModule(config)
         dm.setup(stage=None)
 
         # check train dataloader
@@ -225,14 +225,14 @@ class TestFlowersDataModule:
         assert val_batch['pixel_values'].shape[0] == config.batch_size
 
 
-def make_test_model_config() -> FlowersModelConfig:
-    """Creates a small FlowersModelConfig suitable for CPU testing.
+def make_test_model_config() -> GanModelConfig:
+    """Creates a small GanModelConfig suitable for CPU testing.
 
     Uses image_size=64 with num_blocks=4 so spatial progression is:
         encoder: 64 -> 32 -> 16 -> 8 -> 4 -> 1
         decoder: 1 -> 4 -> 8 -> 16 -> 32 -> 64
     """
-    return FlowersModelConfig(
+    return GanModelConfig(
         image_size=TEST_IMAGE_SIZE,
         image_channels=NUM_CHANNELS,
         latent_dim=32,
@@ -242,11 +242,11 @@ def make_test_model_config() -> FlowersModelConfig:
     )
 
 
-class TestFlowersModelConfig:
+class TestGanModelConfig:
 
     def test_default_values(self) -> None:
-        """Verifies default FlowersModelConfig field values."""
-        config: FlowersModelConfig = FlowersModelConfig()
+        """Verifies default GanModelConfig field values."""
+        config: GanModelConfig = GanModelConfig()
         assert config.image_size == 224
         assert config.image_channels == 3
         assert config.latent_dim == 128
@@ -259,36 +259,36 @@ class TestFlowersModelConfig:
         assert config.encoder_leaky_relu_slope == 0.2
 
     def test_frozen(self) -> None:
-        """Verifies that FlowersModelConfig is immutable."""
-        config: FlowersModelConfig = FlowersModelConfig()
+        """Verifies that GanModelConfig is immutable."""
+        config: GanModelConfig = GanModelConfig()
         with pytest.raises(AttributeError):
             config.image_size = 128
 
     def test_encoder_channels(self) -> None:
         """Verifies per-block encoder channel counts double at each layer."""
-        config: FlowersModelConfig = make_test_model_config()
+        config: GanModelConfig = make_test_model_config()
         channels: list[int] = config.encoder_channels()
         assert channels == [8, 16, 32, 64]
 
     def test_decoder_channels(self) -> None:
         """Verifies per-block decoder channel counts mirror encoder in reverse."""
-        config: FlowersModelConfig = make_test_model_config()
+        config: GanModelConfig = make_test_model_config()
         channels: list[int] = config.decoder_channels()
         assert channels == [64, 32, 16, 8]
 
     def test_initial_spatial_size(self) -> None:
         """Verifies the bottleneck spatial size is image_size / 2^num_blocks."""
-        config: FlowersModelConfig = make_test_model_config()
+        config: GanModelConfig = make_test_model_config()
         # 64 / 2^4 = 4
         assert config.initial_spatial_size() == 4
 
 
-class TestFlowersModelEncoder:
+class TestGanModelEncoder:
 
     def test_forward_shape(self) -> None:
         """Verifies the encoder produces (B, 1) logits from image input."""
-        config: FlowersModelConfig = make_test_model_config()
-        encoder: FlowersModelEncoder = FlowersModelEncoder(config)
+        config: GanModelConfig = make_test_model_config()
+        encoder: GanModelEncoder = GanModelEncoder(config)
 
         batch_size: int = 4
         x: torch.Tensor = torch.randn(batch_size, config.image_channels, config.image_size, config.image_size)
@@ -298,8 +298,8 @@ class TestFlowersModelEncoder:
 
     def test_output_is_unbounded(self) -> None:
         """Verifies the encoder output is raw logits (not clamped to [0, 1])."""
-        config: FlowersModelConfig = make_test_model_config()
-        encoder: FlowersModelEncoder = FlowersModelEncoder(config)
+        config: GanModelConfig = make_test_model_config()
+        encoder: GanModelEncoder = GanModelEncoder(config)
 
         batch_size: int = 8
         x: torch.Tensor = torch.randn(batch_size, config.image_channels, config.image_size, config.image_size)
@@ -312,8 +312,8 @@ class TestFlowersModelEncoder:
 
     def test_gradient_flows(self) -> None:
         """Verifies gradients propagate through the encoder."""
-        config: FlowersModelConfig = make_test_model_config()
-        encoder: FlowersModelEncoder = FlowersModelEncoder(config)
+        config: GanModelConfig = make_test_model_config()
+        encoder: GanModelEncoder = GanModelEncoder(config)
 
         batch_size: int = 2
         x: torch.Tensor = torch.randn(batch_size, config.image_channels, config.image_size, config.image_size)
@@ -328,12 +328,12 @@ class TestFlowersModelEncoder:
         assert first_param.grad.shape == first_param.shape
 
 
-class TestFlowersModelDecoder:
+class TestGanModelDecoder:
 
     def test_forward_shape(self) -> None:
         """Verifies the decoder produces images of correct shape from latent vectors."""
-        config: FlowersModelConfig = make_test_model_config()
-        decoder: FlowersModelDecoder = FlowersModelDecoder(config)
+        config: GanModelConfig = make_test_model_config()
+        decoder: GanModelDecoder = GanModelDecoder(config)
 
         batch_size: int = 4
         z: torch.Tensor = torch.randn(batch_size, config.latent_dim)
@@ -343,8 +343,8 @@ class TestFlowersModelDecoder:
 
     def test_output_range(self) -> None:
         """Verifies the decoder output is in [-1, 1] due to Tanh activation."""
-        config: FlowersModelConfig = make_test_model_config()
-        decoder: FlowersModelDecoder = FlowersModelDecoder(config)
+        config: GanModelConfig = make_test_model_config()
+        decoder: GanModelDecoder = GanModelDecoder(config)
 
         batch_size: int = 8
         z: torch.Tensor = torch.randn(batch_size, config.latent_dim)
@@ -357,8 +357,8 @@ class TestFlowersModelDecoder:
 
     def test_gradient_flows(self) -> None:
         """Verifies gradients propagate through the decoder."""
-        config: FlowersModelConfig = make_test_model_config()
-        decoder: FlowersModelDecoder = FlowersModelDecoder(config)
+        config: GanModelConfig = make_test_model_config()
+        decoder: GanModelDecoder = GanModelDecoder(config)
 
         batch_size: int = 2
         z: torch.Tensor = torch.randn(batch_size, config.latent_dim)
@@ -374,8 +374,8 @@ class TestFlowersModelDecoder:
 
     def test_different_noise_produces_different_images(self) -> None:
         """Verifies different latent vectors produce different output images."""
-        config: FlowersModelConfig = make_test_model_config()
-        decoder: FlowersModelDecoder = FlowersModelDecoder(config)
+        config: GanModelConfig = make_test_model_config()
+        decoder: GanModelDecoder = GanModelDecoder(config)
         decoder.eval()
 
         z1: torch.Tensor = torch.randn(1, config.latent_dim)
@@ -393,9 +393,9 @@ class TestEncoderDecoderRoundTrip:
 
     def test_encoder_accepts_decoder_output(self) -> None:
         """Verifies the encoder can process images produced by the decoder."""
-        config: FlowersModelConfig = make_test_model_config()
-        encoder: FlowersModelEncoder = FlowersModelEncoder(config)
-        decoder: FlowersModelDecoder = FlowersModelDecoder(config)
+        config: GanModelConfig = make_test_model_config()
+        encoder: GanModelEncoder = GanModelEncoder(config)
+        decoder: GanModelDecoder = GanModelDecoder(config)
 
         batch_size: int = 4
         z: torch.Tensor = torch.randn(batch_size, config.latent_dim)
@@ -407,14 +407,14 @@ class TestEncoderDecoderRoundTrip:
         assert logits.shape == torch.Size([batch_size, 1])
 
 
-class TestFlowersModule:
+class TestGanModule:
 
     def test_forward_generates_images(self) -> None:
         """Verifies forward() generates images from noise via the decoder."""
-        config: FlowersModelConfig = make_test_model_config()
-        encoder: FlowersModelEncoder = FlowersModelEncoder(config)
-        decoder: FlowersModelDecoder = FlowersModelDecoder(config)
-        module: FlowersModule = FlowersModule(config=config, encoder=encoder, decoder=decoder)
+        config: GanModelConfig = make_test_model_config()
+        encoder: GanModelEncoder = GanModelEncoder(config)
+        decoder: GanModelDecoder = GanModelDecoder(config)
+        module: GanModule = GanModule(config=config, encoder=encoder, decoder=decoder)
         module.eval()
 
         batch_size: int = 4
@@ -427,10 +427,10 @@ class TestFlowersModule:
 
     def test_training_step_discriminator_and_generator(self) -> None:
         """Verifies the GAN training loop (discriminator + generator) produces finite losses."""
-        config: FlowersModelConfig = make_test_model_config()
-        encoder: FlowersModelEncoder = FlowersModelEncoder(config)
-        decoder: FlowersModelDecoder = FlowersModelDecoder(config)
-        module: FlowersModule = FlowersModule(config=config, encoder=encoder, decoder=decoder)
+        config: GanModelConfig = make_test_model_config()
+        encoder: GanModelEncoder = GanModelEncoder(config)
+        decoder: GanModelDecoder = GanModelDecoder(config)
+        module: GanModule = GanModule(config=config, encoder=encoder, decoder=decoder)
 
         batch_size: int = 4
         real_images: torch.Tensor = torch.randn(
@@ -475,10 +475,10 @@ class TestFlowersModule:
 
     def test_configure_optimizers_returns_two_optimizers(self) -> None:
         """Verifies configure_optimizers returns separate optimizers for D and G."""
-        config: FlowersModelConfig = make_test_model_config()
-        encoder: FlowersModelEncoder = FlowersModelEncoder(config)
-        decoder: FlowersModelDecoder = FlowersModelDecoder(config)
-        module: FlowersModule = FlowersModule(config=config, encoder=encoder, decoder=decoder)
+        config: GanModelConfig = make_test_model_config()
+        encoder: GanModelEncoder = GanModelEncoder(config)
+        decoder: GanModelDecoder = GanModelDecoder(config)
+        module: GanModule = GanModule(config=config, encoder=encoder, decoder=decoder)
 
         optimizers, schedulers = module.configure_optimizers()
 
@@ -489,9 +489,9 @@ class TestFlowersModule:
 
     def test_automatic_optimization_is_disabled(self) -> None:
         """Verifies that manual optimization is used (required for GAN training)."""
-        config: FlowersModelConfig = make_test_model_config()
-        encoder: FlowersModelEncoder = FlowersModelEncoder(config)
-        decoder: FlowersModelDecoder = FlowersModelDecoder(config)
-        module: FlowersModule = FlowersModule(config=config, encoder=encoder, decoder=decoder)
+        config: GanModelConfig = make_test_model_config()
+        encoder: GanModelEncoder = GanModelEncoder(config)
+        decoder: GanModelDecoder = GanModelDecoder(config)
+        module: GanModule = GanModule(config=config, encoder=encoder, decoder=decoder)
 
         assert module.automatic_optimization is False

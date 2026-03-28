@@ -13,13 +13,13 @@ import lightning.pytorch as pl
 import lightning.pytorch.loggers
 import lightning.pytorch.callbacks
 
-from ml.data import FlowersDataModuleConfig, FlowersDataModule
-from ml.model import FlowersModelConfig, FlowersModelEncoder, FlowersModelDecoder
+from ml.data import GanDataModuleConfig, GanDataModule
+from ml.model import GanModelConfig, GanModelEncoder, GanModelDecoder
 
 
 # noinspection DuplicatedCode,PyMethodMayBeStatic
-class FlowersModule(pl.LightningModule):
-    """PyTorch Lightning module for GAN training on flower images.
+class GanModule(pl.LightningModule):
+    """PyTorch Lightning module for GAN training on gan images.
 
     Wraps the encoder (discriminator) and decoder (generator) with standard
     GAN adversarial loss (BCEWithLogitsLoss). Uses manual optimization with
@@ -30,9 +30,9 @@ class FlowersModule(pl.LightningModule):
       2) generator update (×G_STEPS_PER_D_STEP): maximize log(D(G(z)))
 
     Parameters:
-        config: FlowersModelConfig shared between encoder and decoder
-        encoder: FlowersModelEncoder (discriminator)
-        decoder: FlowersModelDecoder (generator)
+        config: GanModelConfig shared between encoder and decoder
+        encoder: GanModelEncoder (discriminator)
+        decoder: GanModelDecoder (generator)
         learning_rate_d: learning rate for the discriminator (encoder) optimizer
         learning_rate_g: learning rate for the generator (decoder) optimizer
         beta1: Adam beta1 parameter (low value per DCGAN convention)
@@ -66,9 +66,9 @@ class FlowersModule(pl.LightningModule):
 
     def __init__(
         self,
-        config: FlowersModelConfig,
-        encoder: FlowersModelEncoder,
-        decoder: FlowersModelDecoder,
+        config: GanModelConfig,
+        encoder: GanModelEncoder,
+        decoder: GanModelDecoder,
         learning_rate_d: float = 1e-4,
         learning_rate_g: float = 2e-4,
         beta1: float = 0.5,
@@ -83,7 +83,7 @@ class FlowersModule(pl.LightningModule):
         # GAN uses manual optimization for separate generator/discriminator steps
         self.automatic_optimization = False
 
-        self.config: t.Final[FlowersModelConfig] = config
+        self.config: t.Final[GanModelConfig] = config
 
         # optimizer hyperparameters (asymmetric LR: lower D rate prevents D from overpowering G)
         self.learning_rate_d: t.Final[float] = learning_rate_d
@@ -92,8 +92,8 @@ class FlowersModule(pl.LightningModule):
         self.beta2: t.Final[float] = beta2
 
         # discriminator (encoder) and generator (decoder)
-        self.encoder: t.Final[FlowersModelEncoder] = encoder
-        self.decoder: t.Final[FlowersModelDecoder] = decoder
+        self.encoder: t.Final[GanModelEncoder] = encoder
+        self.decoder: t.Final[GanModelDecoder] = decoder
 
         # binary cross-entropy with logits for real/fake classification
         self.loss_fn: t.Final[torch.nn.BCEWithLogitsLoss] = torch.nn.BCEWithLogitsLoss()
@@ -362,7 +362,7 @@ class FlowersModule(pl.LightningModule):
 
 
 # noinspection DuplicatedCode,PyMethodMayBeStatic
-class FlowersTrainer:
+class GanTrainer:
     """Assembles the GAN model, data module, Lightning module, and trainer.
 
     Parameters:
@@ -377,13 +377,13 @@ class FlowersTrainer:
         # model config and networks
         # ----------------------------------------------------------------------
 
-        self.model_config: t.Final[FlowersModelConfig] = FlowersModelConfig()
+        self.model_config: t.Final[GanModelConfig] = GanModelConfig()
 
-        self.encoder: t.Final[FlowersModelEncoder] = FlowersModelEncoder(
+        self.encoder: t.Final[GanModelEncoder] = GanModelEncoder(
             config=self.model_config,
         )
 
-        self.decoder: t.Final[FlowersModelDecoder] = FlowersModelDecoder(
+        self.decoder: t.Final[GanModelDecoder] = GanModelDecoder(
             config=self.model_config,
         )
 
@@ -391,12 +391,12 @@ class FlowersTrainer:
         # data module (image size must match the model's image_size)
         # ----------------------------------------------------------------------
 
-        self.data_module_config: t.Final[FlowersDataModuleConfig] = FlowersDataModuleConfig(
+        self.data_module_config: t.Final[GanDataModuleConfig] = GanDataModuleConfig(
             image_height=self.model_config.image_size,
             image_width=self.model_config.image_size,
         )
 
-        self.data_module: t.Final[FlowersDataModule] = FlowersDataModule(
+        self.data_module: t.Final[GanDataModule] = GanDataModule(
             config=self.data_module_config,
         )
 
@@ -404,7 +404,7 @@ class FlowersTrainer:
         # Lightning GAN module
         # ----------------------------------------------------------------------
 
-        self.model_module: t.Final[FlowersModule] = FlowersModule(
+        self.model_module: t.Final[GanModule] = GanModule(
             config=self.model_config,
             encoder=self.encoder,
             decoder=self.decoder,

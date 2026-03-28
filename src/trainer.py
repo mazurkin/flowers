@@ -82,7 +82,7 @@ class TrainerApplication:
         )
 
     def train(self):
-        trainer: ml.module.FlowersTrainer = ml.module.FlowersTrainer(
+        trainer: ml.module.GanTrainer = ml.module.GanTrainer(
             work_folder_path=self.PATH_DIR_WORK,
         )
 

@@ -9,7 +9,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
-class FlowersModelConfig:
+class GanModelConfig:
     """Common configuration for the GAN encoder (discriminator) and decoder (generator).
 
     The encoder and decoder share image dimensions, channel count, and base filter count
@@ -122,7 +122,7 @@ class FlowersModelConfig:
         return size
 
 
-class FlowersModelEncoder(torch.nn.Module):
+class GanModelEncoder(torch.nn.Module):
     """GAN discriminator (encoder) that maps an image to a real/fake scalar.
 
     Architecture:
@@ -136,13 +136,13 @@ class FlowersModelEncoder(torch.nn.Module):
         64 -> 32 -> 16 -> 8 -> 4 -> 1
 
     Parameters:
-        config: FlowersModelConfig with shared architecture hyperparameters
+        config: GanModelConfig with shared architecture hyperparameters
     """
 
-    def __init__(self, config: FlowersModelConfig) -> None:
+    def __init__(self, config: GanModelConfig) -> None:
         super().__init__()
 
-        self.config: t.Final[FlowersModelConfig] = config
+        self.config: t.Final[GanModelConfig] = config
 
         channels: list[int] = config.encoder_channels()
 
@@ -195,7 +195,7 @@ class FlowersModelEncoder(torch.nn.Module):
         )
 
         total_params: int = sum(p.numel() for p in self.parameters())
-        logger.info('FlowersModelEncoder total parameters: %s', total_params)
+        logger.info('GanModelEncoder total parameters: %s', total_params)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the encoder (discriminator).
@@ -221,7 +221,7 @@ class FlowersModelEncoder(torch.nn.Module):
         return logits
 
 
-class FlowersModelDecoder(torch.nn.Module):
+class GanModelDecoder(torch.nn.Module):
     """GAN generator (decoder) that maps a latent noise vector to an image.
 
     Uses a hybrid upsampling strategy to balance sharp structure and smooth output:
@@ -241,7 +241,7 @@ class FlowersModelDecoder(torch.nn.Module):
                   ^ConvT  ^ConvT  ^smooth ^smooth ^smooth(final)
 
     Parameters:
-        config: FlowersModelConfig with shared architecture hyperparameters
+        config: GanModelConfig with shared architecture hyperparameters
     """
 
     # bicubic upsampling scale factor (doubles spatial dimensions at each block)
@@ -250,10 +250,10 @@ class FlowersModelDecoder(torch.nn.Module):
     # kernel size for the smooth convolution after upsampling
     SMOOTH_CONV_KERNEL: t.Final[int] = 3
 
-    def __init__(self, config: FlowersModelConfig) -> None:
+    def __init__(self, config: GanModelConfig) -> None:
         super().__init__()
 
-        self.config: t.Final[FlowersModelConfig] = config
+        self.config: t.Final[GanModelConfig] = config
 
         channels: list[int] = config.decoder_channels()
 
@@ -340,7 +340,7 @@ class FlowersModelDecoder(torch.nn.Module):
         )
 
         total_params: int = sum(p.numel() for p in self.parameters())
-        logger.info('FlowersModelDecoder total parameters: %s', total_params)
+        logger.info('GanModelDecoder total parameters: %s', total_params)
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         """Forward pass through the decoder (generator).

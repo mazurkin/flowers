@@ -15,8 +15,8 @@ from lightning import pytorch as pl
 
 
 @dataclasses.dataclass(frozen=True)
-class FlowersDataModuleConfig:
-    """Configuration for FlowersDataModule."""
+class GanDataModuleConfig:
+    """Configuration for GanDataModule."""
 
     # target image height in pixels
     image_height: int = dataclasses.field(
@@ -73,7 +73,7 @@ class FlowersDataModuleConfig:
     IMAGENET_STD: t.ClassVar[tuple[float, float, float]] = (0.229, 0.224, 0.225)
 
 
-class FlowersDataset(torch.utils.data.Dataset):
+class GanDataset(torch.utils.data.Dataset):
     """Wraps a HuggingFace dataset split and applies albumentations transforms.
 
     Each sample is a dict with:
@@ -133,29 +133,29 @@ class FlowersDataset(torch.utils.data.Dataset):
         }
 
 
-class FlowersDataModule(pl.LightningDataModule):
+class GanDataModule(pl.LightningDataModule):
     """PyTorch Lightning DataModule for the mteb/oxford-flowers dataset.
 
     Loads the dataset from HuggingFace, splits it into train and eval sets,
     and applies albumentations image transforms including augmentation for training.
 
     Parameters:
-        config: FlowersDataModuleConfig with image size, batch size, split fractions, etc.
+        config: GanDataModuleConfig with image size, batch size, split fractions, etc.
     """
 
     # the HuggingFace dataset identifier
     DATASET_NAME: t.Final[str] = 'mteb/oxford-flowers'
 
-    def __init__(self, config: FlowersDataModuleConfig) -> None:
+    def __init__(self, config: GanDataModuleConfig) -> None:
         super().__init__()
 
         self.logging: t.Final[logging.Logger] = logging.getLogger(self.__class__.__name__)
 
-        self.config: t.Final[FlowersDataModuleConfig] = config
+        self.config: t.Final[GanDataModuleConfig] = config
 
         # datasets will be assigned after setup()
-        self.train_dataset: t.Optional[FlowersDataset] = None
-        self.eval_dataset: t.Optional[FlowersDataset] = None
+        self.train_dataset: t.Optional[GanDataset] = None
+        self.eval_dataset: t.Optional[GanDataset] = None
 
     def build_train_transform(self) -> albumentations.Compose:
         """Builds the albumentations augmentation pipeline for the training set.
@@ -188,8 +188,8 @@ class FlowersDataModule(pl.LightningDataModule):
                 p=0.1,
             ),
             albumentations.Normalize(
-                mean=FlowersDataModuleConfig.IMAGENET_MEAN,
-                std=FlowersDataModuleConfig.IMAGENET_STD,
+                mean=GanDataModuleConfig.IMAGENET_MEAN,
+                std=GanDataModuleConfig.IMAGENET_STD,
             ),
             albumentations.pytorch.ToTensorV2(),
         ])
@@ -208,8 +208,8 @@ class FlowersDataModule(pl.LightningDataModule):
                 width=self.config.image_width,
             ),
             albumentations.Normalize(
-                mean=FlowersDataModuleConfig.IMAGENET_MEAN,
-                std=FlowersDataModuleConfig.IMAGENET_STD,
+                mean=GanDataModuleConfig.IMAGENET_MEAN,
+                std=GanDataModuleConfig.IMAGENET_STD,
             ),
             albumentations.pytorch.ToTensorV2(),
         ])
@@ -260,13 +260,13 @@ class FlowersDataModule(pl.LightningDataModule):
         train_transform: albumentations.Compose = self.build_train_transform()
         eval_transform: albumentations.Compose = self.build_eval_transform()
 
-        # wrap into FlowersDataset instances
+        # wrap into GanDataset instances
         if stage in ('fit', None):
-            self.train_dataset = FlowersDataset(train_hf, train_transform)
-            self.eval_dataset = FlowersDataset(eval_hf, eval_transform)
+            self.train_dataset = GanDataset(train_hf, train_transform)
+            self.eval_dataset = GanDataset(eval_hf, eval_transform)
 
         if stage in ('validate', None):
-            self.eval_dataset = FlowersDataset(eval_hf, eval_transform)
+            self.eval_dataset = GanDataset(eval_hf, eval_transform)
 
     @t.override
     def train_dataloader(self) -> torch.utils.data.DataLoader:
