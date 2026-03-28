@@ -1,4 +1,3 @@
-import collections
 import dataclasses
 import logging
 import typing as t
@@ -20,13 +19,13 @@ class GanDataModuleConfig:
 
     # target image height in pixels
     image_height: int = dataclasses.field(
-        default=224,
+        default=256,
         metadata={'help': 'Target image height in pixels'},
     )
 
     # target image width in pixels
     image_width: int = dataclasses.field(
-        default=224,
+        default=256,
         metadata={'help': 'Target image width in pixels'},
     )
 
@@ -42,15 +41,9 @@ class GanDataModuleConfig:
         metadata={'help': 'Number of data loading workers'},
     )
 
-    # fraction of data used for training
-    train_fraction: float = dataclasses.field(
-        default=0.8,
-        metadata={'help': 'Fraction of dataset used for training'},
-    )
-
     # fraction of data used for evaluation (validation)
     eval_fraction: float = dataclasses.field(
-        default=0.1,
+        default=0.05,
         metadata={'help': 'Fraction of dataset used for evaluation'},
     )
 
@@ -58,12 +51,6 @@ class GanDataModuleConfig:
     seed: int = dataclasses.field(
         default=42,
         metadata={'help': 'Random seed for dataset splitting'},
-    )
-
-    # number of largest classes to keep (None means keep all classes)
-    top_classes: t.Optional[int] = dataclasses.field(
-        default=5,
-        metadata={'help': 'Number of largest classes to keep (None = all)'},
     )
 
     # ImageNet channel means for normalization (R, G, B)
@@ -78,10 +65,9 @@ class GanDataset(torch.utils.data.Dataset):
 
     Each sample is a dict with:
       - 'image': PIL.Image from the HuggingFace dataset
-      - 'label': int flower category index (0 to 101)
 
     Parameters:
-        hf_dataset: a HuggingFace dataset split containing 'image' and 'label' columns
+        hf_dataset: a HuggingFace dataset split containing 'image' column
         transform: an albumentations Compose pipeline to apply to each image
     """
 
@@ -101,13 +87,13 @@ class GanDataset(torch.utils.data.Dataset):
         return len(self.hf_dataset)
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
-        """Returns a single sample as a dict with 'pixel_values' tensor and 'label' tensor.
+        """Returns a single sample as a dict with 'pixel_values' tensor.
 
         Parameters:
             index: the index of the sample to retrieve
 
         Returns:
-            dict with 'pixel_values' (C, H, W) float tensor and 'label' scalar long tensor
+            dict with 'pixel_values' (C, H, W) float tensor
         """
         sample: dict = self.hf_dataset[index]
 
@@ -125,16 +111,13 @@ class GanDataset(torch.utils.data.Dataset):
             f'expected {self.NUM_CHANNELS} channels, got {pixel_values.shape[0]}'
         )
 
-        label: torch.Tensor = torch.tensor(sample['label'], dtype=torch.long)
-
         return {
             'pixel_values': pixel_values,
-            'label': label,
         }
 
 
 class GanDataModule(pl.LightningDataModule):
-    """PyTorch Lightning DataModule for the mteb/oxford-flowers dataset.
+    """PyTorch Lightning DataModule for the huggan/metfaces dataset.
 
     Loads the dataset from HuggingFace, splits it into train and eval sets,
     and applies albumentations image transforms including augmentation for training.
@@ -144,7 +127,7 @@ class GanDataModule(pl.LightningDataModule):
     """
 
     # the HuggingFace dataset identifier
-    DATASET_NAME: t.Final[str] = 'mteb/oxford-flowers'
+    DATASET_NAME: t.Final[str] = 'huggan/metfaces'
 
     def __init__(self, config: GanDataModuleConfig) -> None:
         super().__init__()
@@ -172,7 +155,7 @@ class GanDataModule(pl.LightningDataModule):
                 ratio=(0.9, 1.1),
             ),
             albumentations.Rotate(
-                limit=10,
+                limit=5,
                 p=0.5,
             ),
             albumentations.HorizontalFlip(p=0.5),
@@ -228,21 +211,6 @@ class GanDataModule(pl.LightningDataModule):
             split='train',
         )
         self.logging.info('total samples: %d', len(full_dataset))
-
-        # filter to the top N largest classes if configured
-        if self.config.top_classes is not None:
-            label_counts: collections.Counter = collections.Counter(full_dataset['label'])
-
-            top_labels: set[int] = {
-                label for label, _count in label_counts.most_common(self.config.top_classes)
-            }
-
-            full_dataset = full_dataset.filter(lambda row: row['label'] in top_labels)
-
-            self.logging.info(
-                'filtered to top %d classes (labels=%s): %d samples',
-                self.config.top_classes, sorted(top_labels), len(full_dataset),
-            )
 
         # split into train and eval sets
         split: datasets.DatasetDict = full_dataset.train_test_split(

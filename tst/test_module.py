@@ -31,32 +31,28 @@ def make_test_config() -> GanDataModuleConfig:
         image_width=TEST_IMAGE_SIZE,
         batch_size=4,
         num_workers=0,
-        top_classes=None,
     )
 
 
 def make_fake_hf_dataset(num_samples: int = NUM_SAMPLES) -> datasets.Dataset:
-    """Creates a fake HuggingFace dataset mimicking mteb/oxford-flowers.
+    """Creates a fake HuggingFace dataset mimicking huggan/metfaces.
 
     Parameters:
         num_samples: number of synthetic samples to generate
 
     Returns:
-        a HuggingFace Dataset with 'image' (PIL) and 'label' (int) columns
+        a HuggingFace Dataset with 'image' (PIL) column
     """
     images: list[PIL.Image.Image] = []
-    labels: list[int] = []
 
     for i in range(num_samples):
         # create synthetic RGB images with random pixel values
         pixels: numpy.ndarray = numpy.random.randint(0, 256, (32, 32, NUM_CHANNELS), dtype=numpy.uint8)
         img: PIL.Image.Image = PIL.Image.fromarray(pixels)
         images.append(img)
-        labels.append(i % 10)
 
     return datasets.Dataset.from_dict({
         'image': images,
-        'label': labels,
     })
 
 
@@ -65,12 +61,10 @@ class TestGanDataConfig:
     def test_default_config(self) -> None:
         """Verifies default config values."""
         config: GanDataModuleConfig = GanDataModuleConfig()
-        assert config.image_height == 224
-        assert config.image_width == 224
+        assert config.image_height == 256
+        assert config.image_width == 256
         assert config.batch_size == 64
-        assert config.train_fraction == 0.8
-        assert config.eval_fraction == 0.1
-        assert config.top_classes == 5
+        assert config.eval_fraction == 0.05
 
     def test_frozen(self) -> None:
         """Verifies the config dataclass is immutable."""
@@ -99,10 +93,6 @@ class TestGanDataset:
         assert pixel_values.shape == torch.Size([NUM_CHANNELS, TEST_IMAGE_SIZE, TEST_IMAGE_SIZE])
         assert pixel_values.dtype == torch.float32
 
-        label: torch.Tensor = sample['label']
-        assert label.shape == torch.Size([])
-        assert label.dtype == torch.long
-
     def test_grayscale_image_converted_to_rgb(self) -> None:
         """Verifies that a grayscale image is properly converted to 3-channel RGB."""
         config: GanDataModuleConfig = make_test_config()
@@ -112,7 +102,6 @@ class TestGanDataset:
         gray_image: PIL.Image.Image = PIL.Image.fromarray(gray_pixels, mode='L')
         hf_dataset: datasets.Dataset = datasets.Dataset.from_dict({
             'image': [gray_image],
-            'label': [0],
         })
 
         dm: GanDataModule = GanDataModule(config)
@@ -163,35 +152,6 @@ class TestGanDataModule:
         expected_eval: int = int(NUM_SAMPLES * config.eval_fraction)
         assert abs(len(dm.eval_dataset) - expected_eval) <= 2
 
-    def test_setup_filters_top_classes(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Verifies that setup() filters dataset to the top N largest classes."""
-        # create a fake dataset with 10 classes (labels 0-9), each with 10 samples
-        fake_dataset: datasets.Dataset = make_fake_hf_dataset(num_samples=NUM_SAMPLES)
-
-        monkeypatch.setattr(
-            datasets,
-            'load_dataset',
-            lambda *args, **kwargs: fake_dataset,
-        )
-
-        # keep only top 3 classes out of 10
-        top_n: int = 3
-        config: GanDataModuleConfig = GanDataModuleConfig(
-            image_height=TEST_IMAGE_SIZE,
-            image_width=TEST_IMAGE_SIZE,
-            batch_size=4,
-            num_workers=0,
-            top_classes=top_n,
-        )
-
-        dm: GanDataModule = GanDataModule(config)
-        dm.setup(stage=None)
-
-        # fake dataset has 100 samples across 10 classes (10 each),
-        # top 3 keeps 30 samples total
-        total: int = len(dm.train_dataset) + len(dm.eval_dataset)
-        assert total == top_n * (NUM_SAMPLES // 10)
-
     def test_dataloaders_produce_batches(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verifies that dataloaders produce correctly shaped batches."""
         fake_dataset: datasets.Dataset = make_fake_hf_dataset(num_samples=NUM_SAMPLES)
@@ -216,8 +176,6 @@ class TestGanDataModule:
             TEST_IMAGE_SIZE,
             TEST_IMAGE_SIZE,
         ])
-        assert batch['label'].shape == torch.Size([config.batch_size])
-        assert batch['label'].dtype == torch.long
 
         # check val dataloader
         val_dl: torch.utils.data.DataLoader = dm.val_dataloader()
@@ -247,12 +205,12 @@ class TestGanModelConfig:
     def test_default_values(self) -> None:
         """Verifies default GanModelConfig field values."""
         config: GanModelConfig = GanModelConfig()
-        assert config.image_size == 224
+        assert config.image_size == 256
         assert config.image_channels == 3
         assert config.latent_dim == 128
         assert config.base_filters == 64
         assert config.num_blocks == 5
-        assert config.num_smooth_blocks == 4
+        assert config.num_smooth_blocks == 1
         assert config.kernel_size == 4
         assert config.stride == 2
         assert config.padding == 1

@@ -17,4 +17,4 @@ make train
 
 ## datasets
 
-- https://huggingface.co/datasets/mteb/oxford-flowers
+- https://huggingface.co/datasets/huggan/metfaces

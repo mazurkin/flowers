@@ -25,7 +25,7 @@ class GanModelConfig:
 
     # target square image size in pixels (must be divisible by 2^num_blocks)
     image_size: int = dataclasses.field(
-        default=224,
+        default=256,
         metadata={'help': 'Target square image size in pixels'},
     )
 
@@ -57,7 +57,7 @@ class GanModelConfig:
     # instead of ConvTranspose2d; the remaining early blocks use ConvTranspose2d
     # for sharp structural features from low-resolution feature maps
     num_smooth_blocks: int = dataclasses.field(
-        default=4,
+        default=1,
         metadata={'help': 'Number of final decoder blocks using smooth bicubic upsample + Conv2d'},
     )
 
