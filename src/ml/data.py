@@ -1,3 +1,4 @@
+import collections
 import dataclasses
 import logging
 import typing as t
@@ -57,6 +58,12 @@ class FlowersDataModuleConfig:
     seed: int = dataclasses.field(
         default=42,
         metadata={'help': 'Random seed for dataset splitting'},
+    )
+
+    # number of largest classes to keep (None means keep all classes)
+    top_classes: t.Optional[int] = dataclasses.field(
+        default=5,
+        metadata={'help': 'Number of largest classes to keep (None = all)'},
     )
 
     # ImageNet channel means for normalization (R, G, B)
@@ -221,6 +228,21 @@ class FlowersDataModule(pl.LightningDataModule):
             split='train',
         )
         self.logging.info('total samples: %d', len(full_dataset))
+
+        # filter to the top N largest classes if configured
+        if self.config.top_classes is not None:
+            label_counts: collections.Counter = collections.Counter(full_dataset['label'])
+
+            top_labels: set[int] = {
+                label for label, _count in label_counts.most_common(self.config.top_classes)
+            }
+
+            full_dataset = full_dataset.filter(lambda row: row['label'] in top_labels)
+
+            self.logging.info(
+                'filtered to top %d classes (labels=%s): %d samples',
+                self.config.top_classes, sorted(top_labels), len(full_dataset),
+            )
 
         # split into train and eval sets
         split: datasets.DatasetDict = full_dataset.train_test_split(

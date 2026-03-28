@@ -31,6 +31,7 @@ def make_test_config() -> FlowersDataModuleConfig:
         image_width=TEST_IMAGE_SIZE,
         batch_size=4,
         num_workers=0,
+        top_classes=None,
     )
 
 
@@ -51,7 +52,7 @@ def make_fake_hf_dataset(num_samples: int = NUM_SAMPLES) -> datasets.Dataset:
         pixels: numpy.ndarray = numpy.random.randint(0, 256, (32, 32, NUM_CHANNELS), dtype=numpy.uint8)
         img: PIL.Image.Image = PIL.Image.fromarray(pixels)
         images.append(img)
-        labels.append(i % 2)
+        labels.append(i % 10)
 
     return datasets.Dataset.from_dict({
         'image': images,
@@ -69,6 +70,7 @@ class TestFlowersDataConfig:
         assert config.batch_size == 64
         assert config.train_fraction == 0.8
         assert config.eval_fraction == 0.1
+        assert config.top_classes == 5
 
     def test_frozen(self) -> None:
         """Verifies the config dataclass is immutable."""
@@ -160,6 +162,35 @@ class TestFlowersDataModule:
         # verify approximate split ratios (allow +-2 for rounding)
         expected_eval: int = int(NUM_SAMPLES * config.eval_fraction)
         assert abs(len(dm.eval_dataset) - expected_eval) <= 2
+
+    def test_setup_filters_top_classes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verifies that setup() filters dataset to the top N largest classes."""
+        # create a fake dataset with 10 classes (labels 0-9), each with 10 samples
+        fake_dataset: datasets.Dataset = make_fake_hf_dataset(num_samples=NUM_SAMPLES)
+
+        monkeypatch.setattr(
+            datasets,
+            'load_dataset',
+            lambda *args, **kwargs: fake_dataset,
+        )
+
+        # keep only top 3 classes out of 10
+        top_n: int = 3
+        config: FlowersDataModuleConfig = FlowersDataModuleConfig(
+            image_height=TEST_IMAGE_SIZE,
+            image_width=TEST_IMAGE_SIZE,
+            batch_size=4,
+            num_workers=0,
+            top_classes=top_n,
+        )
+
+        dm: FlowersDataModule = FlowersDataModule(config)
+        dm.setup(stage=None)
+
+        # fake dataset has 100 samples across 10 classes (10 each),
+        # top 3 keeps 30 samples total
+        total: int = len(dm.train_dataset) + len(dm.eval_dataset)
+        assert total == top_n * (NUM_SAMPLES // 10)
 
     def test_dataloaders_produce_batches(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Verifies that dataloaders produce correctly shaped batches."""
