@@ -166,16 +166,12 @@ clean-work-logs:
 clean-work-tensorboard:
 	@rm --recursive --verbose --force "$(ROOT)/work/tensorboard"
 
-.PHONY: clean-work-litlogger
-clean-work-litlogger:
-	@rm --recursive --verbose --force "$(ROOT)/work/litlogger"
-
 .PHONY: clean-work-snapshot
 clean-work-snapshot:
 	@rm --recursive --verbose --force "$(ROOT)/work/snapshot"
 
 .PHONY: clean-work
-clean-work: clean-work-logs clean-work-tensorboard clean-work-litlogger clean-work-snapshot
+clean-work: clean-work-logs clean-work-tensorboard clean-work-snapshot
 
 .PHONY: clean
 clean: clean-pycache clean-work
