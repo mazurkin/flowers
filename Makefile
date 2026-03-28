@@ -114,7 +114,7 @@ train:
 	@bin/run python3 src/trainer.py train | tee "$(ROOT)/work/run-trainer-$(DATE).log"
 
 .PHONY: train-reset
-train-reset: clean-work-tensorboard clean-work-snapshot train
+train-reset: clean-work train
 
 # -----------------------------------------------------------------------------
 # test
@@ -155,23 +155,30 @@ gpustat:
 
 .PHONY: clean-pycache
 clean-pycache:
-	@find "$(ROOT)/src" -type d -name '__pycache__' -print0 | xargs -0 -r  1 rm -rv
-	@find "$(ROOT)/tst" -type d -name '__pycache__' -print0 | xargs -0 -r -n 1 rm -rv
+	@find "$(ROOT)/src" -type d -name '__pycache__' -print0 | xargs -0 -r -n 1 rm --recursive --verbose
+	@find "$(ROOT)/tst" -type d -name '__pycache__' -print0 | xargs -0 -r -n 1 rm --recursive --verbose
 
 .PHONY: clean-work-logs
 clean-work-logs:
-	@find "$(ROOT)/work" -type f -name '*.log' -print0 | xargs -0 -r -n 1 rm -rv
+	@find "$(ROOT)/work" -type f -name '*.log' -print0 | xargs -0 -r -n 1 rm --recursive --verbose
 
 .PHONY: clean-work-tensorboard
 clean-work-tensorboard:
-	@rm -rf "$(ROOT)/work/tensorboard"
+	@rm --recursive --verbose --force "$(ROOT)/work/tensorboard"
+
+.PHONY: clean-work-litlogger
+clean-work-litlogger:
+	@rm --recursive --verbose --force "$(ROOT)/work/litlogger"
 
 .PHONY: clean-work-snapshot
 clean-work-snapshot:
-	@rm -rf "$(ROOT)/work/snapshot"
+	@rm --recursive --verbose --force "$(ROOT)/work/snapshot"
+
+.PHONY: clean-work
+clean-work: clean-work-logs clean-work-tensorboard clean-work-litlogger clean-work-snapshot
 
 .PHONY: clean
-clean: clean-pycache clean-work-logs clean-work-tensorboard clean-work-snapshot
+clean: clean-pycache clean-work
 
 # -----------------------------------------------------------------------------
 # rsync push

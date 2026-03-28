@@ -6,6 +6,7 @@ import typing as t
 import yaml
 import sys
 import json
+import warnings
 
 import torch
 import torch.cuda
@@ -61,13 +62,31 @@ class TrainerApplication:
         # determinism
         torch.use_deterministic_algorithms(mode=False)
 
+        # avoid the CheckPoint warning
+        warnings.filterwarnings(
+            action='ignore',
+            message=r'Checkpoint directory .* exists and is not empty\.',
+            category=UserWarning,
+        )
+        warnings.filterwarnings(
+            action='ignore',
+            message=r'.* is set, but there is no last checkpoint available\. No checkpoint will be loaded\. .*',
+            category=UserWarning,
+        )
+
+        # avoid the LitLogger warning
+        warnings.filterwarnings(
+            action='ignore',
+            message=r'LitLogger does not support `log_graph`',
+            category=UserWarning,
+        )
+
     def train(self):
         trainer: ml.module.FlowersTrainer = ml.module.FlowersTrainer(
             work_folder_path=self.PATH_DIR_WORK,
         )
 
         trainer.run()
-        self.logger.info('training finished')
 
     @staticmethod
     def load_yaml(path: pathlib.Path, yaml_loader_class: t.Type) -> t.Dict:

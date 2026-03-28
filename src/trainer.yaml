@@ -11,6 +11,8 @@ handlers:
 loggers:
   lightning:
     level: INFO
+  lightning.pytorch.utilities.rank_zero:
+    level: INFO
   lightning_sdk:
     level: WARNING
   lightning_fabric:

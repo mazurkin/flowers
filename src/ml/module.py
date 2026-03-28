@@ -1,5 +1,4 @@
 import datetime
-import logging
 import pathlib
 import typing as t
 
@@ -28,7 +27,7 @@ class FlowersModule(pl.LightningModule):
 
     The training_step alternates between:
       1) discriminator update: maximize log(D(real)) + log(1 - D(G(z)))
-      2) generator update: maximize log(D(G(z)))
+      2) generator update (×G_STEPS_PER_D_STEP): maximize log(D(G(z)))
 
     Parameters:
         config: FlowersModelConfig shared between encoder and decoder
@@ -55,6 +54,10 @@ class FlowersModule(pl.LightningModule):
     # number of images per row in the TensorBoard grid
     GRID_NROW: t.Final[int] = 4
 
+    # number of generator updates per single discriminator update
+    # multiple G steps help the generator keep up with a stronger discriminator
+    G_STEPS_PER_D_STEP: t.Final[int] = 2
+
     # DCGAN weight initialization: normal distribution with mean=0, stdev=0.02
     INIT_WEIGHT_STD: t.Final[float] = 0.02
 
@@ -66,7 +69,7 @@ class FlowersModule(pl.LightningModule):
         config: FlowersModelConfig,
         encoder: FlowersModelEncoder,
         decoder: FlowersModelDecoder,
-        learning_rate_d: float = 2e-4,
+        learning_rate_d: float = 1e-4,
         learning_rate_g: float = 2e-4,
         beta1: float = 0.5,
         beta2: float = 0.999,
@@ -185,64 +188,78 @@ class FlowersModule(pl.LightningModule):
         self.manual_backward(loss_d)
         optimizer_d.step()
 
-        # ------------------------------------------------------------------
-        # generator step: maximize log(D(G(z)))
-        # ------------------------------------------------------------------
-
-        # re-evaluate discriminator on fake images (now allow gradients to flow to generator)
-        fake_logits_g: torch.Tensor = self.encoder(fake_images)
-        assert fake_logits_g.shape == torch.Size([batch_size, 1])
-
-        # generator wants discriminator to classify fakes as real
-        loss_g_adv: torch.Tensor = self.loss_fn(fake_logits_g, real_labels)
-
-        # ------------------------------------------------------------------
-        # vibrancy regularization: penalize dim/gray outputs
-        # ------------------------------------------------------------------
-
-        # spatial variance: encourage high contrast and texture across pixels
-        # compute per-image std across spatial dims (H, W), then average over batch and channels
-        spatial_std: torch.Tensor = fake_images.std(dim=(-2, -1)).mean()
-        assert spatial_std.shape == torch.Size([])
-
-        loss_spatial: torch.Tensor = -spatial_std
-
-        # channel diversity: encourage different R, G, B values (penalize gray)
-        # compute per-image mean per channel, then std across channels, average over batch
-        channel_means: torch.Tensor = fake_images.mean(dim=(-2, -1))
-        assert channel_means.shape == torch.Size([batch_size, self.config.image_channels])
-
-        channel_std: torch.Tensor = channel_means.std(dim=-1).mean()
-        assert channel_std.shape == torch.Size([])
-
-        loss_channel: torch.Tensor = -channel_std
-
-        # total generator loss
-        loss_g: torch.Tensor = loss_g_adv \
-            + self.SPATIAL_VARIANCE_WEIGHT * loss_spatial \
-            + self.CHANNEL_DIVERSITY_WEIGHT * loss_channel
-
-        optimizer_g.zero_grad()
-        self.manual_backward(loss_g)
-        optimizer_g.step()
-
-        # ------------------------------------------------------------------
-        # logging
-        # ------------------------------------------------------------------
-
+        # discriminator loss
         self.log('train/loss_d', loss_d, prog_bar=True, on_step=False, on_epoch=True)
-        self.log('train/loss_g', loss_g, prog_bar=True, on_step=False, on_epoch=True)
-
-        self.log('train/loss_g_adv', loss_g_adv, on_step=False, on_epoch=True)
-        self.log('train/loss_spatial', loss_spatial, on_step=False, on_epoch=True)
-        self.log('train/loss_channel', loss_channel, on_step=False, on_epoch=True)
-
         self.log('train/loss_d_real', loss_d_real, on_step=False, on_epoch=True)
         self.log('train/loss_d_fake', loss_d_fake, on_step=False, on_epoch=True)
 
         # discriminator confidence on real and fake (sigmoid of mean logit)
         self.log('train/d_real', torch.sigmoid(real_logits).mean(), on_step=False, on_epoch=True)
         self.log('train/d_fake', torch.sigmoid(fake_logits).mean(), on_step=False, on_epoch=True)
+
+        # ------------------------------------------------------------------
+        # generator steps: maximize log(D(G(z)))
+        # run multiple G updates per D update to help G keep up
+        # ------------------------------------------------------------------
+
+        for g_step in range(self.G_STEPS_PER_D_STEP):
+            # generate fresh fakes for each G step (reuse first batch on step 0)
+            if g_step == 0:
+                g_fake_images = fake_images
+            else:
+                g_noise: torch.Tensor = torch.randn(
+                    batch_size,
+                    self.config.latent_dim,
+                    device=self.device,
+                    dtype=real_images.dtype,
+                )
+
+                g_fake_images = self.decoder(g_noise)
+                assert g_fake_images.shape == real_images.shape
+
+            # evaluate discriminator on generator output (allow gradients to flow to generator)
+            fake_logits_g: torch.Tensor = self.encoder(g_fake_images)
+            assert fake_logits_g.shape == torch.Size([batch_size, 1])
+
+            # generator wants discriminator to classify fakes as real
+            loss_g_adv: torch.Tensor = self.loss_fn(fake_logits_g, real_labels)
+
+            # ------------------------------------------------------------------
+            # vibrancy regularization: penalize dim/gray outputs
+            # ------------------------------------------------------------------
+
+            # spatial variance: encourage high contrast and texture across pixels
+            # compute per-image std across spatial dims (H, W), then average over batch and channels
+            spatial_std: torch.Tensor = g_fake_images.std(dim=(-2, -1)).mean()
+            assert spatial_std.shape == torch.Size([])
+
+            loss_spatial: torch.Tensor = -spatial_std
+
+            # channel diversity: encourage different R, G, B values (penalize gray)
+            # compute per-image mean per channel, then std across channels, average over batch
+            channel_means: torch.Tensor = g_fake_images.mean(dim=(-2, -1))
+            assert channel_means.shape == torch.Size([batch_size, self.config.image_channels])
+
+            channel_std: torch.Tensor = channel_means.std(dim=-1).mean()
+            assert channel_std.shape == torch.Size([])
+
+            loss_channel: torch.Tensor = -channel_std
+
+            # total generator loss for this step
+            loss_g: torch.Tensor = loss_g_adv \
+                + self.SPATIAL_VARIANCE_WEIGHT * loss_spatial \
+                + self.CHANNEL_DIVERSITY_WEIGHT * loss_channel
+
+            optimizer_g.zero_grad()
+            self.manual_backward(loss_g)
+            optimizer_g.step()
+
+            # generator loss
+            if g_step == 0:
+                self.log('train/loss_g', loss_g, prog_bar=True, on_step=False, on_epoch=True)
+                self.log('train/loss_g_adv', loss_g_adv, on_step=False, on_epoch=True)
+                self.log('train/loss_spatial', loss_spatial, on_step=False, on_epoch=True)
+                self.log('train/loss_channel', loss_channel, on_step=False, on_epoch=True)
 
     @t.override
     def validation_step(self, batch: dict[str, torch.Tensor], batch_idx: int) -> None:
@@ -403,6 +420,7 @@ class FlowersTrainer:
                 name='',
                 version='',
                 default_hp_metric=False,
+                log_graph=False,
             )
 
         # ----------------------------------------------------------------------
@@ -423,10 +441,10 @@ class FlowersTrainer:
 
         self.timer_callback: t.Final[lightning.pytorch.callbacks.Timer] = \
             lightning.pytorch.callbacks.Timer(
-                duration=datetime.timedelta(hours=4),
+                duration=datetime.timedelta(hours=48),
             )
 
-        self.last_checkpoint_callback: t.Final[pl.callbacks.ModelCheckpoint] = \
+        self.last_checkpoint_callback: t.Final[lightning.pytorch.callbacks.ModelCheckpoint] = \
             lightning.pytorch.callbacks.ModelCheckpoint(
                 dirpath=self.work_folder_path / 'snapshot' / 'last',
                 filename='epoch-{epoch:03d}',
@@ -444,7 +462,7 @@ class FlowersTrainer:
 
         self.trainer: t.Final[pl.Trainer] = pl.Trainer(
             min_epochs=1,
-            max_epochs=256,
+            max_epochs=512,
 
             min_steps=1,
             max_steps=-1,
