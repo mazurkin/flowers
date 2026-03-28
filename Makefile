@@ -2,6 +2,11 @@ SHELL := /bin/bash
 ROOT  := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 DATE  := $(shell date '+%Y%m%d-%H%M%S')
 
+RSYNC               = rsync --archive --verbose --compress --rsh='ssh -o ClearAllForwardings=yes'
+
+REMOTE_HOST        ?= pp-flowers
+REMOTE_PATH        ?= projects/flowers
+
 CONDA_ENV_NAME      = flowers
 
 export PYTHONDONTWRITEBYTECODE = 1
@@ -13,11 +18,6 @@ export POETRY_REQUESTS_TIMEOUT = 300
 
 export HF_HUB_ETAG_TIMEOUT     = 300
 export HF_DATASETS_OFFLINE     = 0
-
-RSYNC               = rsync --archive --verbose --compress --rsh='ssh -o ClearAllForwardings=yes'
-
-REMOTE_HOST        ?= pp-flowers
-REMOTE_PATH        ?= projects/flowers
 
 # -----------------------------------------------------------------------------
 # default
@@ -111,9 +111,7 @@ train: export OMP_NUM_THREADS=1
 train: export PYTHONOPTIMIZE=0
 train: export CUDA_VISIBLE_DEVICES=0
 train:
-	@bin/run torchrun --standalone --nnodes=1 --nproc_per_node=1 --node_rank=0 \
-		src/trainer.py train \
-	| tee "$(ROOT)/work/run-trainer-$(DATE).log"
+	@bin/run python3 src/trainer.py train | tee "$(ROOT)/work/run-trainer-$(DATE).log"
 
 .PHONY: train-reset
 train-reset: clean-work-tensorboard clean-work-snapshot train

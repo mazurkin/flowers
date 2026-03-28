@@ -43,18 +43,30 @@ class FlowersModule(pl.LightningModule):
     # label smoothing value for real labels to stabilize discriminator training
     REAL_LABEL_SMOOTHING: t.Final[float] = 0.9
 
+    # weight for spatial variance regularization (encourages contrast and texture)
+    SPATIAL_VARIANCE_WEIGHT: t.Final[float] = 0.5
+
+    # weight for channel diversity regularization (encourages color, penalizes gray)
+    CHANNEL_DIVERSITY_WEIGHT: t.Final[float] = 0.5
+
     # number of sample images to generate for TensorBoard visualization
     NUM_SAMPLE_IMAGES: t.Final[int] = 16
 
     # number of images per row in the TensorBoard grid
     GRID_NROW: t.Final[int] = 4
 
+    # DCGAN weight initialization: normal distribution with mean=0, stdev=0.02
+    INIT_WEIGHT_STD: t.Final[float] = 0.02
+
+    # batch normalization initialization: mean=1, stdev=0.02
+    INIT_BN_MEAN: t.Final[float] = 1.0
+
     def __init__(
         self,
         config: FlowersModelConfig,
         encoder: FlowersModelEncoder,
         decoder: FlowersModelDecoder,
-        learning_rate_d: float = 1e-4,
+        learning_rate_d: float = 2e-4,
         learning_rate_g: float = 2e-4,
         beta1: float = 0.5,
         beta2: float = 0.999,
@@ -85,6 +97,24 @@ class FlowersModule(pl.LightningModule):
 
         # fixed noise vector for consistent sample visualization across epochs
         self.fixed_noise: t.Final[torch.Tensor] = torch.randn(self.NUM_SAMPLE_IMAGES, config.latent_dim)
+
+        # initialize weights
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module: torch.nn.Module) -> None:
+        """Initializes Conv2d, ConvTranspose2d, Linear and BatchNorm layers per DCGAN convention.
+
+        All convolutional and linear weights are drawn from Normal(0, 0.02). BatchNorm weights
+        are drawn from Normal(1, 0.02) with biases zeroed.
+
+        Parameters:
+            module: a single layer to initialize (called via self.apply)
+        """
+        if isinstance(module, (torch.nn.Conv2d, torch.nn.ConvTranspose2d, torch.nn.Linear)):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=self.INIT_WEIGHT_STD)
+        elif isinstance(module, (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d)):
+            torch.nn.init.normal_(module.weight, mean=self.INIT_BN_MEAN, std=self.INIT_WEIGHT_STD)
+            torch.nn.init.zeros_(module.bias)
 
     @t.override
     def forward(self, z: torch.Tensor) -> torch.Tensor:
@@ -128,6 +158,7 @@ class FlowersModule(pl.LightningModule):
         # discriminator on real images
         real_logits: torch.Tensor = self.encoder(real_images)
         assert real_logits.shape == torch.Size([batch_size, 1])
+
         loss_d_real: torch.Tensor = self.loss_fn(real_logits, real_labels)
 
         # generate fake images
@@ -137,12 +168,14 @@ class FlowersModule(pl.LightningModule):
             device=self.device,
             dtype=real_images.dtype,
         )
+
         fake_images: torch.Tensor = self.decoder(noise)
         assert fake_images.shape == real_images.shape
 
         # discriminator on fake images (detach to avoid backprop through generator)
         fake_logits: torch.Tensor = self.encoder(fake_images.detach())
         assert fake_logits.shape == torch.Size([batch_size, 1])
+
         loss_d_fake: torch.Tensor = self.loss_fn(fake_logits, fake_labels)
 
         # total discriminator loss
@@ -161,7 +194,33 @@ class FlowersModule(pl.LightningModule):
         assert fake_logits_g.shape == torch.Size([batch_size, 1])
 
         # generator wants discriminator to classify fakes as real
-        loss_g: torch.Tensor = self.loss_fn(fake_logits_g, real_labels)
+        loss_g_adv: torch.Tensor = self.loss_fn(fake_logits_g, real_labels)
+
+        # ------------------------------------------------------------------
+        # vibrancy regularization: penalize dim/gray outputs
+        # ------------------------------------------------------------------
+
+        # spatial variance: encourage high contrast and texture across pixels
+        # compute per-image std across spatial dims (H, W), then average over batch and channels
+        spatial_std: torch.Tensor = fake_images.std(dim=(-2, -1)).mean()
+        assert spatial_std.shape == torch.Size([])
+
+        loss_spatial: torch.Tensor = -spatial_std
+
+        # channel diversity: encourage different R, G, B values (penalize gray)
+        # compute per-image mean per channel, then std across channels, average over batch
+        channel_means: torch.Tensor = fake_images.mean(dim=(-2, -1))
+        assert channel_means.shape == torch.Size([batch_size, self.config.image_channels])
+
+        channel_std: torch.Tensor = channel_means.std(dim=-1).mean()
+        assert channel_std.shape == torch.Size([])
+
+        loss_channel: torch.Tensor = -channel_std
+
+        # total generator loss
+        loss_g: torch.Tensor = loss_g_adv \
+            + self.SPATIAL_VARIANCE_WEIGHT * loss_spatial \
+            + self.CHANNEL_DIVERSITY_WEIGHT * loss_channel
 
         optimizer_g.zero_grad()
         self.manual_backward(loss_g)
@@ -173,6 +232,11 @@ class FlowersModule(pl.LightningModule):
 
         self.log('train/loss_d', loss_d, prog_bar=True, on_step=False, on_epoch=True)
         self.log('train/loss_g', loss_g, prog_bar=True, on_step=False, on_epoch=True)
+
+        self.log('train/loss_g_adv', loss_g_adv, on_step=False, on_epoch=True)
+        self.log('train/loss_spatial', loss_spatial, on_step=False, on_epoch=True)
+        self.log('train/loss_channel', loss_channel, on_step=False, on_epoch=True)
+
         self.log('train/loss_d_real', loss_d_real, on_step=False, on_epoch=True)
         self.log('train/loss_d_fake', loss_d_fake, on_step=False, on_epoch=True)
 
@@ -220,6 +284,7 @@ class FlowersModule(pl.LightningModule):
 
         self.log('val/loss_d', loss_d, prog_bar=True, on_step=False, on_epoch=True)
         self.log('val/loss_g', loss_g, prog_bar=True, on_step=False, on_epoch=True)
+
         self.log('val/d_real', torch.sigmoid(real_logits).mean(), on_step=False, on_epoch=True)
         self.log('val/d_fake', torch.sigmoid(fake_logits).mean(), on_step=False, on_epoch=True)
 
@@ -379,7 +444,7 @@ class FlowersTrainer:
 
         self.trainer: t.Final[pl.Trainer] = pl.Trainer(
             min_epochs=1,
-            max_epochs=200,
+            max_epochs=256,
 
             min_steps=1,
             max_steps=-1,

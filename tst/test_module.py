@@ -207,6 +207,7 @@ def make_test_model_config() -> FlowersModelConfig:
         latent_dim=32,
         base_filters=8,
         num_blocks=4,
+        num_smooth_blocks=2,
     )
 
 
@@ -220,6 +221,7 @@ class TestFlowersModelConfig:
         assert config.latent_dim == 128
         assert config.base_filters == 64
         assert config.num_blocks == 5
+        assert config.num_smooth_blocks == 4
         assert config.kernel_size == 4
         assert config.stride == 2
         assert config.padding == 1

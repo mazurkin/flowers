@@ -14,8 +14,9 @@ class FlowersModelConfig:
 
     The encoder and decoder share image dimensions, channel count, and base filter count
     so that their architectures are symmetric. The encoder downsamples from image_size to 1x1
-    through num_blocks strided convolutions. The decoder upsamples from initial_spatial_size
-    to image_size through num_blocks bicubic Upsample + Conv2d blocks.
+    through num_blocks strided convolutions. The decoder uses a hybrid upsampling strategy:
+    early blocks use ConvTranspose2d for sharp structural features, and the last
+    num_smooth_blocks blocks use bicubic Upsample + Conv2d for artifact-free output.
 
     With image_size=64 and NUM_BLOCKS=4, spatial progression is:
         decoder: 1 -> 4 -> 8 -> 16 -> 32 -> 64
@@ -50,6 +51,14 @@ class FlowersModelConfig:
     num_blocks: int = dataclasses.field(
         default=5,
         metadata={'help': 'Number of downsampling (encoder) / upsampling (decoder) blocks'},
+    )
+
+    # number of final decoder blocks that use smooth upsampling (Upsample + Conv2d)
+    # instead of ConvTranspose2d; the remaining early blocks use ConvTranspose2d
+    # for sharp structural features from low-resolution feature maps
+    num_smooth_blocks: int = dataclasses.field(
+        default=4,
+        metadata={'help': 'Number of final decoder blocks using smooth bicubic upsample + Conv2d'},
     )
 
     # convolution kernel size used throughout the encoder and decoder
@@ -106,6 +115,9 @@ class FlowersModelConfig:
         """
         size: int = self.image_size // (2 ** self.num_blocks)
         assert size >= 1, f'image_size={self.image_size} is too small for num_blocks={self.num_blocks}'
+        assert self.num_smooth_blocks < self.num_blocks, (
+            f'num_smooth_blocks={self.num_smooth_blocks} must be less than num_blocks={self.num_blocks}'
+        )
 
         return size
 
@@ -212,17 +224,21 @@ class FlowersModelEncoder(torch.nn.Module):
 class FlowersModelDecoder(torch.nn.Module):
     """GAN generator (decoder) that maps a latent noise vector to an image.
 
-    Uses bicubic upsampling followed by regular Conv2d instead of ConvTranspose2d
-    to avoid checkerboard artifacts that transposed convolutions produce.
+    Uses a hybrid upsampling strategy to balance sharp structure and smooth output:
+    - Early blocks (low resolution) use ConvTranspose2d for learned sharp upsampling
+    - Last num_smooth_blocks blocks (high resolution) use bicubic Upsample + Conv2d
+      to avoid checkerboard artifacts
 
     Architecture:
         Linear projection -> Reshape to (deepest_channels, initial_spatial, initial_spatial)
-        -> (num_blocks - 1) x [Upsample(bicubic, 2x) -> Conv2d(3x3) -> BatchNorm -> ReLU]
-        -> final Upsample(bicubic, 2x) -> Conv2d(3x3) -> Tanh
+        -> early blocks: [ConvTranspose2d -> BatchNorm -> ReLU]
+        -> smooth blocks: [Upsample(bicubic, 2x) -> Conv2d(3x3) -> BatchNorm -> ReLU]
+        -> final smooth: Upsample(bicubic, 2x) -> Conv2d(3x3) -> Tanh
 
-    With image_size=224, base_filters=64, latent_dim=128, num_blocks=5:
+    With image_size=224, base_filters=64, latent_dim=128, num_blocks=5, num_smooth_blocks=2:
         channels: latent_dim -> 1024 -> 512 -> 256 -> 128 -> 64 -> 3
         spatial:  7 -> 14 -> 28 -> 56 -> 112 -> 224
+                  ^ConvT  ^ConvT  ^smooth ^smooth ^smooth(final)
 
     Parameters:
         config: FlowersModelConfig with shared architecture hyperparameters
@@ -262,8 +278,27 @@ class FlowersModelDecoder(torch.nn.Module):
         # build network
         self.net: t.Final[torch.nn.Sequential] = torch.nn.Sequential()
 
+        # early blocks: ConvTranspose2d for sharp learned upsampling at low resolutions
+        # uses kernel_size=3 with output_padding=1 for symmetric overlap (avoids checkerboard)
+        for i in range(0, config.num_blocks - config.num_smooth_blocks - 1):
+            self.net.append(
+                torch.nn.Sequential(
+                    torch.nn.ConvTranspose2d(
+                        in_channels=channels[i],
+                        out_channels=channels[i + 1],
+                        kernel_size=3,
+                        stride=config.stride,
+                        padding=1,
+                        output_padding=1,
+                        bias=False,
+                    ),
+                    torch.nn.BatchNorm2d(channels[i + 1]),
+                    torch.nn.ReLU(inplace=True),
+                )
+            )
+
         # smooth blocks: bicubic upsample + Conv2d to avoid checkerboard artifacts
-        for i in range(0, config.num_blocks - 1):
+        for i in range(config.num_blocks - config.num_smooth_blocks - 1, config.num_blocks - 1):
             self.net.append(
                 torch.nn.Sequential(
                     torch.nn.Upsample(
@@ -332,7 +367,7 @@ class FlowersModelDecoder(torch.nn.Module):
             batch_size, self.deepest_channels, self.initial_spatial, self.initial_spatial,
         ])
 
-        # upsample through bicubic interpolation + Conv2d blocks
+        # upsample through transposed convolutions
         images: torch.Tensor = self.net(reshaped)
         assert images.shape == torch.Size([
             batch_size, self.config.image_channels, self.config.image_size, self.config.image_size,
